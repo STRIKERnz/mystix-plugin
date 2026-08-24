@@ -49,7 +49,7 @@ public class MystixApiClient
 	private static final long REQUEST_TIMEOUT_SECONDS = 10;
 	private static final long LARGE_REQUEST_TIMEOUT_SECONDS = 60;
 	private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json");
-	private static final String API_BASE_URL = "https://api.mystix.app";
+	private static final String API_BASE_URL = "http://homeassistant.local:8123";
 	private static final String TIMERS_ENDPOINT = "/api/runelite/timers/";
 	private static final String SKILLS_ENDPOINT = "/api/runelite/skills/";
 	private static final String BANK_ENDPOINT = "/api/runelite/bank/";

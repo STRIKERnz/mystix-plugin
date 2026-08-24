@@ -1,0 +1,9 @@
+{
+  "domain": "mystix_runelite",
+  "name": "Mystix RuneLite Receiver",
+  "codeowners": [],
+  "documentation": "https://github.com/mystix-app/mystix-plugin",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "version": "0.1.0"
+}
