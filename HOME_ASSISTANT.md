@@ -1,47 +1,52 @@
-# Home Assistant receiver
+# Home Assistant RuneLite Bridge
 
-This repository includes a Home Assistant custom integration that implements the
-RuneLite plugin's `/api/runelite/...` API locally.
+This repository includes a Home Assistant custom integration that receives the
+RuneLite plugin's `/api/runelite/...` sync payloads locally.
 
 ## Install
 
-1. Copy `custom_components/mystix_runelite` into the `custom_components` folder
-   inside your Home Assistant configuration directory.
-2. Add this to `configuration.yaml`, using a long random secret:
+1. Copy `homeassistant/custom_components/runelite_bridge` into the
+   `custom_components` directory in your Home Assistant configuration.
+2. Restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration** and select
+   **RuneLite Bridge**.
+4. Enter a long random app key, for example one generated with:
 
-   ```yaml
-   mystix_runelite:
-     api_key: "replace-with-a-long-random-secret"
+   ```bash
+   openssl rand -hex 32
    ```
 
-3. Restart Home Assistant.
-4. Put the same secret in RuneLite under **Mystix App Key**.
+5. Enter the same value in RuneLite under **Mystix App Key**.
+6. Set **Home Assistant URL** in the plugin to the address reachable from the
+   RuneLite computer, such as `http://homeassistant.local:8123`.
 
-The RuneLite plugin sends to `http://homeassistant.local:8123`. If that hostname
-does not resolve from the computer running RuneLite, replace the plugin's base
-URL with the Home Assistant machine's LAN IP.
+## Docker development environment
 
-## Data and automations
+Start the included Home Assistant environment with:
 
-The integration persists the latest payload for each player and sync type in
-Home Assistant's `.storage/mystix_runelite.data` store. Do not edit that file
-while Home Assistant is running.
+```bash
+docker compose up -d
+```
 
-Every accepted sync fires a `mystix_runelite_sync` event containing:
+Open `http://localhost:8123`. The Compose configuration mounts the bridge,
+dashboard configuration, and RuneLite dashboard into the container.
+
+## Entities, events, and assets
+
+The integration persists the latest payload for every sync category and creates
+dashboard entities for account progress, skills, quests, Slayer, loot, timers,
+bank sources, and kill counts.
+
+Every accepted sync fires a `runelite_bridge_sync` event containing:
 
 ```yaml
 sync_type: skills
-player: Your RS Name
 payload: {}
 ```
 
-Use that event as an automation trigger. Real-time loot drops are retained as a
-bounded history of the latest 500 drops per player.
+RuneLite cache images uploaded by the plugin are stored below
+`/config/www/runelite` and served by Home Assistant under `/local/runelite`.
+Uploads are authenticated, deduplicated, and rate limited by the plugin.
 
-## Roadmaps
-
-Roadmaps can be loaded through the `mystix_runelite.import_roadmaps` action. The
-`roadmaps_json` field accepts the same roadmap list/detail shape expected by the
-RuneLite plugin. The integration supports listing, viewing, completing, and
-deleting goals. `recompute` currently returns the stored roadmap unchanged;
-automatic goal evaluation is not yet implemented.
+The included YAML dashboard is available as **RuneLite** in the Home Assistant
+sidebar when using the provided Compose configuration.
