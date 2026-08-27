@@ -8,7 +8,7 @@ from typing import Any
 
 from aiohttp import web
 
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -44,6 +44,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.http.register_view(RuneLiteAssetView("skills", "{asset_id:[a-z_]+}"))
     hass.http.register_view(RuneLiteAssetView("hiscores", "{asset_id:[a-z0-9_]+}"))
     hass.http.register_view(RuneLiteAssetView("ui", "{asset_id:[a-z_]+}"))
+    hass.http.register_view(RuneLiteBankDashboardView())
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(
+            "/runelite_bridge_static/bank-card.js",
+            str(Path(__file__).parent / "www" / "bank-card.js"),
+            cache_headers=False,
+        )]
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -135,3 +143,34 @@ class RuneLiteAssetView(HomeAssistantView):
         return web.json_response(
             {"success": True, "url": f"/local/runelite/{self.asset_kind}/{asset_id}.png"}
         )
+
+
+class RuneLiteBankDashboardView(HomeAssistantView):
+    """Serve current bank data to authenticated Home Assistant frontends."""
+
+    url = "/api/runelite_bridge/dashboard/bank"
+    name = "api:runelite_bridge:dashboard_bank"
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        runtime = hass.data.get(DOMAIN, {})
+        payload = runtime.get("payloads", {}).get("bank", {})
+        sources: dict[str, list[dict[str, Any]]] = {}
+        raw_sources = payload.get("items", {}) if isinstance(payload, dict) else {}
+        if isinstance(raw_sources, dict):
+            for source, items in raw_sources.items():
+                if not isinstance(items, list):
+                    continue
+                sources[str(source)] = [
+                    {
+                        "item_id": item["item_id"],
+                        "quantity": item.get("quantity", 0),
+                        "icon": f"/local/runelite/items/{item['item_id']}.png",
+                    }
+                    for item in items
+                    if isinstance(item, dict) and isinstance(item.get("item_id"), int)
+                ]
+        return web.json_response({
+            "player": payload.get("player_username") if isinstance(payload, dict) else None,
+            "sources": sources,
+        })

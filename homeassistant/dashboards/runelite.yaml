@@ -183,18 +183,9 @@ views:
           - {entity: sensor.runelite_bridge_bank, name: Bank slots}
           - {entity: sensor.runelite_bridge_latest_drop_items, name: Latest drop items}
 
-      - type: markdown
-        title: Bank sources
-        content: |-
-          {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_bank_') %}
-          ### {{ entity.name | replace('RuneLite Bridge ', '') }} ({{ entity.state }})
-          {% for item in entity.attributes.get('items', []) %}
-          <img src="{{ item.icon }}" width="32" height="32" title="Item {{ item.item_id }} × {{ item.quantity }}">
-          {% endfor %}
-
-          {% else %}
-          Open your bank, seed vault, looting bag, or potion storage to sync it.
-          {% endfor %}
+      - type: custom:runelite-bank-card
+        title: Bank browser
+        page_size: 100
 
       - type: entities
         title: Timers
