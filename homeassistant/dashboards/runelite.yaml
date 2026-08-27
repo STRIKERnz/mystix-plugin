@@ -1,0 +1,226 @@
+title: RuneLite
+views:
+  - title: Overview
+    path: overview
+    icon: mdi:sword-cross
+    cards:
+      - type: markdown
+        title: RuneLite Bridge
+        content: >-
+          {% set player = state_attr('sensor.runelite_bridge_skills', 'player') %}
+          # {{ player or 'Waiting for RuneLite' }}
+
+          {% if player %}
+          Your local RuneLite bridge is online and receiving game data.
+          {% else %}
+          Start RuneLite with the Mystix plugin to populate this dashboard.
+          {% endif %}
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.runelite_bridge_skills
+            name: Total level
+            min: 0
+            max: 2376
+            severity:
+              green: 1800
+              yellow: 1000
+              red: 0
+          - type: tile
+            entity: sensor.runelite_bridge_slayer
+            name: Slayer task
+            color: purple
+          - type: tile
+            entity: sensor.runelite_bridge_quests
+            name: Completed quests
+            color: amber
+          - type: tile
+            entity: sensor.runelite_bridge_collection_log
+            name: Collection log
+            color: cyan
+          - type: tile
+            entity: sensor.runelite_bridge_combat_achievements
+            name: Combat achievements
+            color: red
+          - type: tile
+            entity: sensor.runelite_bridge_achievement_diaries
+            name: Completed diary tiers
+            color: green
+
+      - type: entities
+        title: Latest activity
+        show_header_toggle: false
+        entities:
+          - entity: sensor.runelite_bridge_loot_drop
+            name: Latest drop source
+          - entity: sensor.runelite_bridge_loot
+            name: Loot sources tracked
+          - entity: sensor.runelite_bridge_kill_counts
+            name: Total tracked kills
+          - entity: sensor.runelite_bridge_timers
+            name: Active timers
+          - entity: sensor.runelite_bridge_bank
+            name: Bank item slots
+
+  - title: Progress
+    path: progress
+    icon: mdi:chart-line
+    cards:
+      - type: entities
+        title: Account progression
+        show_header_toggle: false
+        entities:
+          - entity: sensor.runelite_bridge_skills
+            name: Total level
+          - entity: sensor.runelite_bridge_quests
+            name: Completed quests
+          - entity: sensor.runelite_bridge_achievement_diaries
+            name: Completed diary tiers
+          - entity: sensor.runelite_bridge_combat_achievements
+            name: Combat achievements
+          - entity: sensor.runelite_bridge_collection_log
+            name: Collection log
+          - entity: sensor.runelite_bridge_kill_counts
+            name: Total tracked kills
+
+      - type: markdown
+        title: Account summary
+        content: |-
+          **Player:** {{ state_attr('sensor.runelite_bridge_skills', 'player') or 'Waiting' }}
+
+          **Total level:** {{ states('sensor.runelite_bridge_skills') }}
+
+          **Combat level:** {{ state_attr('sensor.runelite_bridge_skills', 'combat_level') or 'Unknown' }}
+
+          **Completed quests:** {{ states('sensor.runelite_bridge_quests') }}
+
+          **Completed diary tiers:** {{ states('sensor.runelite_bridge_achievement_diaries') }}
+
+          **Combat achievements:** {{ states('sensor.runelite_bridge_combat_achievements') }}
+
+          **Collection log items:** {{ states('sensor.runelite_bridge_collection_log') }}
+
+          **Tracked boss kills:** {{ states('sensor.runelite_bridge_kill_counts') }}
+
+      - type: entities
+        title: Skill levels
+        show_header_toggle: false
+        entities:
+          - {entity: sensor.runelite_bridge_attack_level, name: Attack}
+          - {entity: sensor.runelite_bridge_strength_level, name: Strength}
+          - {entity: sensor.runelite_bridge_defence_level, name: Defence}
+          - {entity: sensor.runelite_bridge_hitpoints_level, name: Hitpoints}
+          - {entity: sensor.runelite_bridge_ranged_level, name: Ranged}
+          - {entity: sensor.runelite_bridge_prayer_level, name: Prayer}
+          - {entity: sensor.runelite_bridge_magic_level, name: Magic}
+          - {entity: sensor.runelite_bridge_runecraft_level, name: Runecraft}
+          - {entity: sensor.runelite_bridge_construction_level, name: Construction}
+          - {entity: sensor.runelite_bridge_agility_level, name: Agility}
+          - {entity: sensor.runelite_bridge_herblore_level, name: Herblore}
+          - {entity: sensor.runelite_bridge_thieving_level, name: Thieving}
+          - {entity: sensor.runelite_bridge_crafting_level, name: Crafting}
+          - {entity: sensor.runelite_bridge_fletching_level, name: Fletching}
+          - {entity: sensor.runelite_bridge_slayer_level, name: Slayer}
+          - {entity: sensor.runelite_bridge_hunter_level, name: Hunter}
+          - {entity: sensor.runelite_bridge_mining_level, name: Mining}
+          - {entity: sensor.runelite_bridge_smithing_level, name: Smithing}
+          - {entity: sensor.runelite_bridge_fishing_level, name: Fishing}
+          - {entity: sensor.runelite_bridge_cooking_level, name: Cooking}
+          - {entity: sensor.runelite_bridge_firemaking_level, name: Firemaking}
+          - {entity: sensor.runelite_bridge_woodcutting_level, name: Woodcutting}
+          - {entity: sensor.runelite_bridge_farming_level, name: Farming}
+          - {entity: sensor.runelite_bridge_sailing_level, name: Sailing}
+
+      - type: entities
+        title: Quest breakdown
+        show_header_toggle: false
+        entities:
+          - {entity: sensor.runelite_bridge_quests_completed, name: Completed}
+          - {entity: sensor.runelite_bridge_quests_in_progress, name: In progress}
+          - {entity: sensor.runelite_bridge_quests_not_started, name: Not started}
+
+  - title: Activity
+    path: activity
+    icon: mdi:history
+    cards:
+      - type: entities
+        title: Slayer
+        show_header_toggle: false
+        entities:
+          - {entity: sensor.runelite_bridge_slayer, name: Current task}
+          - {entity: sensor.runelite_bridge_slayer_catalog, name: Catalog}
+          - {entity: sensor.runelite_bridge_slayer_rewards, name: Rewards}
+          - {entity: sensor.runelite_bridge_slayer_remaining, name: Remaining}
+          - {entity: sensor.runelite_bridge_slayer_task_size, name: Task size}
+          - {entity: sensor.runelite_bridge_slayer_points, name: Points}
+          - {entity: sensor.runelite_bridge_slayer_streak, name: Streak}
+          - {entity: sensor.runelite_bridge_wilderness_slayer_streak, name: Wilderness streak}
+          - {entity: sensor.runelite_bridge_slayer_xp, name: Slayer XP}
+
+      - type: markdown
+        title: Boss and activity kill counts
+        content: |-
+          {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_kc_') %}
+          **{{ entity.name | replace('RuneLite Bridge KC ', '') }}:** {{ entity.state }}  
+          {% else %}
+          No kill counts received yet.
+          {% endfor %}
+
+      - type: entities
+        title: Loot and equipment
+        show_header_toggle: false
+        entities:
+          - {entity: sensor.runelite_bridge_loot_drop, name: Latest drop source}
+          - {entity: sensor.runelite_bridge_loot, name: Loot sources}
+          - {entity: sensor.runelite_bridge_loadouts, name: Loadouts}
+          - {entity: sensor.runelite_bridge_bank, name: Bank slots}
+          - {entity: sensor.runelite_bridge_latest_drop_items, name: Latest drop items}
+
+      - type: markdown
+        title: Bank sources
+        content: |-
+          {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_bank_') %}
+          **{{ entity.name | replace('RuneLite Bridge ', '') }}:** {{ entity.state }}  
+          {% else %}
+          Open your bank, seed vault, looting bag, or potion storage to sync it.
+          {% endfor %}
+
+      - type: entities
+        title: Timers
+        show_header_toggle: false
+        entities:
+          - {entity: sensor.runelite_bridge_timers, name: Timers}
+          - {entity: sensor.runelite_bridge_timers_ready, name: Ready}
+
+  - title: Data status
+    path: data-status
+    icon: mdi:database-check
+    cards:
+      - type: markdown
+        content: >-
+          Sensors display **Waiting** until their first matching RuneLite sync.
+          Open the relevant interface in game to trigger bank, collection log,
+          loadout, and Slayer interface syncs.
+
+      - type: entities
+        title: All bridge entities
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - sensor.runelite_bridge_achievement_diaries
+          - sensor.runelite_bridge_bank
+          - sensor.runelite_bridge_collection_log
+          - sensor.runelite_bridge_combat_achievements
+          - sensor.runelite_bridge_kill_counts
+          - sensor.runelite_bridge_loadouts
+          - sensor.runelite_bridge_loot
+          - sensor.runelite_bridge_loot_drop
+          - sensor.runelite_bridge_quests
+          - sensor.runelite_bridge_skills
+          - sensor.runelite_bridge_slayer
+          - sensor.runelite_bridge_slayer_catalog
+          - sensor.runelite_bridge_slayer_rewards
+          - sensor.runelite_bridge_timers

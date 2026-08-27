@@ -9,6 +9,8 @@ services:
       TZ: Pacific/Auckland
     volumes:
       - homeassistant_config:/config
+      - ./homeassistant/configuration.yaml:/config/configuration.yaml:ro
+      - ./homeassistant/dashboards/runelite.yaml:/config/runelite-dashboard.yaml:ro
       - ./homeassistant/custom_components:/config/custom_components:ro
 
 volumes:

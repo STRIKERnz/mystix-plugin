@@ -13,6 +13,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SYNC_ENDPOINTS
 
+SKILLS = (
+    "attack", "strength", "defence", "hitpoints", "ranged", "prayer", "magic",
+    "cooking", "woodcutting", "fletching", "fishing", "firemaking", "crafting",
+    "smithing", "mining", "herblore", "agility", "thieving", "slayer", "farming",
+    "runecraft", "hunter", "construction", "sailing",
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -21,15 +28,30 @@ async def async_setup_entry(
 ) -> None:
     """Create one live sensor for each supported RuneLite sync category."""
     runtime = hass.data[DOMAIN]
-    async_add_entities(
+    entities: list[SensorEntity] = [
         RuneLitePayloadSensor(entry, runtime, endpoint) for endpoint in SYNC_ENDPOINTS
-    )
+    ]
+    entities.extend(_fixed_detail_entities(entry, runtime))
+    async_add_entities(entities)
+
+    dynamic_ids: set[str] = set()
+
+    @callback
+    def discover(endpoint: str) -> None:
+        additions = _dynamic_detail_entities(entry, runtime, endpoint, dynamic_ids)
+        if additions:
+            async_add_entities(additions)
+
+    runtime["listeners"].append(discover)
+    entry.async_on_unload(lambda: runtime["listeners"].remove(discover))
+    for endpoint in ("bank", "kill-counts"):
+        discover(endpoint)
 
 
 class RuneLitePayloadSensor(SensorEntity):
     """Represent the latest payload received for a sync category."""
 
-    _attr_has_entity_name = True
+    _attr_has_entity_name = False
     _attr_icon = "mdi:sword-cross"
 
     def __init__(self, entry: ConfigEntry, runtime: dict[str, Any], endpoint: str) -> None:
@@ -74,6 +96,173 @@ class RuneLitePayloadSensor(SensorEntity):
     def _payload(self) -> dict[str, Any] | None:
         payload = self._runtime["payloads"].get(self._endpoint)
         return payload if isinstance(payload, dict) else None
+
+
+class RuneLiteDetailSensor(SensorEntity):
+    """Expose one useful value from a larger RuneLite payload."""
+
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        runtime: dict[str, Any],
+        endpoint: str,
+        key: str,
+        name: str,
+        value: Callable[[dict[str, Any]], Any],
+        attributes: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        icon: str = "mdi:sword-cross",
+    ) -> None:
+        self._runtime = runtime
+        self._endpoint = endpoint
+        self._value = value
+        self._attributes = attributes
+        self._attr_unique_id = f"{entry.entry_id}_detail_{key}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="RuneLite Bridge",
+            manufacturer="Mystix",
+            model="Local bridge",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        listeners: list[Callable[[str], None]] = self._runtime["listeners"]
+        listeners.append(self._payload_updated)
+        self.async_on_remove(lambda: listeners.remove(self._payload_updated))
+
+    @callback
+    def _payload_updated(self, endpoint: str) -> None:
+        if endpoint == self._endpoint:
+            self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> Any:
+        payload = self._runtime["payloads"].get(self._endpoint)
+        return self._value(payload) if isinstance(payload, dict) else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        payload = self._runtime["payloads"].get(self._endpoint)
+        if self._attributes is None or not isinstance(payload, dict):
+            return None
+        return self._attributes(payload)
+
+
+def _fixed_detail_entities(
+    entry: ConfigEntry, runtime: dict[str, Any]
+) -> list[RuneLiteDetailSensor]:
+    entities: list[RuneLiteDetailSensor] = []
+    for skill in SKILLS:
+        entities.append(RuneLiteDetailSensor(
+            entry, runtime, "skills", f"skill_{skill}", f"{skill.title()} level",
+            lambda payload, skill=skill: _skill(payload, skill).get("level"),
+            lambda payload, skill=skill: {"xp": _skill(payload, skill).get("current_xp")},
+            "mdi:star-four-points",
+        ))
+
+    for status, label in ((2, "Completed"), (1, "In progress"), (0, "Not started")):
+        entities.append(RuneLiteDetailSensor(
+            entry, runtime, "quests", f"quests_{status}", f"Quests {label.lower()}",
+            lambda payload, status=status: _count_value(payload.get("quests"), status),
+            icon="mdi:book-open-page-variant",
+        ))
+
+    slayer_fields = (
+        ("amount_remaining", "Slayer remaining", "mdi:counter"),
+        ("amount_original", "Slayer task size", "mdi:counter"),
+        ("points", "Slayer points", "mdi:seal"),
+        ("streak", "Slayer streak", "mdi:fire"),
+        ("wilderness_streak", "Wilderness Slayer streak", "mdi:fire"),
+        ("slayer_level", "Slayer level", "mdi:sword-cross"),
+        ("slayer_xp", "Slayer XP", "mdi:chart-line"),
+    )
+    for field, label, icon in slayer_fields:
+        entities.append(RuneLiteDetailSensor(
+            entry, runtime, "slayer", f"slayer_{field}", label,
+            lambda payload, field=field: _nested(payload, "state", field), icon=icon,
+        ))
+
+    entities.extend((
+        RuneLiteDetailSensor(
+            entry, runtime, "timers", "timers_ready", "Timers ready",
+            lambda payload: sum(
+                timer.get("crop_state") in ("harvestable", "empty")
+                for timer in payload.get("timers", []) if isinstance(timer, dict)
+            ), icon="mdi:timer-check",
+        ),
+        RuneLiteDetailSensor(
+            entry, runtime, "loot/drop", "latest_drop_item_count", "Latest drop items",
+            lambda payload: _length(payload.get("items")),
+            lambda payload: {
+                "npc": payload.get("npc_name"), "kill_count": payload.get("kill_count"),
+                "dropped_at": payload.get("dropped_at"), "items": payload.get("items", []),
+            }, "mdi:treasure-chest",
+        ),
+    ))
+    return entities
+
+
+def _dynamic_detail_entities(
+    entry: ConfigEntry,
+    runtime: dict[str, Any],
+    endpoint: str,
+    known: set[str],
+) -> list[RuneLiteDetailSensor]:
+    payload = runtime["payloads"].get(endpoint)
+    if not isinstance(payload, dict):
+        return []
+    entities: list[RuneLiteDetailSensor] = []
+    if endpoint == "kill-counts":
+        values = payload.get("kill_counts", {})
+        if isinstance(values, dict):
+            for boss in values:
+                key = f"kc_{_slug(boss)}"
+                if key not in known:
+                    known.add(key)
+                    entities.append(RuneLiteDetailSensor(
+                        entry, runtime, endpoint, key, f"KC {str(boss).title()}",
+                        lambda data, boss=boss: data.get("kill_counts", {}).get(boss),
+                        icon="mdi:skull-crossbones",
+                    ))
+    elif endpoint == "bank":
+        values = payload.get("items", {})
+        if isinstance(values, dict):
+            for source in values:
+                key = f"bank_{_slug(source)}"
+                if key not in known:
+                    known.add(key)
+                    entities.append(RuneLiteDetailSensor(
+                        entry, runtime, endpoint, key, f"{str(source).replace('_', ' ').title()} slots",
+                        lambda data, source=source: _length(data.get("items", {}).get(source)),
+                        lambda data, source=source: {
+                            "total_quantity": sum(
+                                item.get("quantity", 0)
+                                for item in data.get("items", {}).get(source, [])
+                                if isinstance(item, dict) and isinstance(item.get("quantity"), int)
+                            )
+                        }, "mdi:bank",
+                    ))
+    return entities
+
+
+def _skill(payload: dict[str, Any], skill: str) -> dict[str, Any]:
+    skills = payload.get("skills", {})
+    value = next(
+        (item for name, item in skills.items() if str(name).lower() == skill.lower()), {}
+    ) if isinstance(skills, dict) else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _nested(payload: dict[str, Any], parent: str, key: str) -> Any:
+    value = payload.get(parent, {})
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _slug(value: Any) -> str:
+    return "".join(character if character.isalnum() else "_" for character in str(value).lower()).strip("_")
 
 
 def _payload_state(endpoint: str, payload: dict[str, Any]) -> str | int:

@@ -1,0 +1,19 @@
+# Loads the default Home Assistant integrations.
+default_config:
+
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+lovelace:
+  dashboards:
+    runelite-dashboard:
+      mode: yaml
+      title: RuneLite
+      icon: mdi:sword-cross
+      show_in_sidebar: true
+      require_admin: false
+      filename: runelite-dashboard.yaml
