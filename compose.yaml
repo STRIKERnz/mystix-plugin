@@ -1,0 +1,15 @@
+services:
+  homeassistant:
+    container_name: mystix-homeassistant-dev
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    environment:
+      TZ: Pacific/Auckland
+    volumes:
+      - homeassistant_config:/config
+      - ./homeassistant/custom_components:/config/custom_components:ro
+
+volumes:
+  homeassistant_config:

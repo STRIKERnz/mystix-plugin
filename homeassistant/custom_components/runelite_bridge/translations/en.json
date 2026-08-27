@@ -1,0 +1,20 @@
+{
+  "title": "RuneLite Bridge",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up RuneLite Bridge",
+        "description": "Choose a shared key. Enter the same value in the RuneLite plugin's App Key setting.",
+        "data": {
+          "app_key": "App key"
+        },
+        "data_description": {
+          "app_key": "A private shared key used to authenticate incoming RuneLite data."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "RuneLite Bridge is already configured."
+    }
+  }
+}

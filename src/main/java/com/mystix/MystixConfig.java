@@ -9,7 +9,12 @@ public interface MystixConfig extends Config {
 	String CONFIG_GROUP = "mystix";
 	String APP_KEY = "mystixAppKey";
 
-	@ConfigItem(keyName = APP_KEY, name = "Mystix App Key", description = "API key for authenticating with Mystix. Get this from the Mystix app after installing this plugin.", position = 0, secret = true)
+	@ConfigItem(keyName = "apiBaseUrl", name = "Home Assistant URL", description = "Address of the Home Assistant instance that receives RuneLite data.", position = 0)
+	default String apiBaseUrl() {
+		return "http://localhost:8123";
+	}
+
+	@ConfigItem(keyName = APP_KEY, name = "App Key", description = "Private shared key configured in the Home Assistant RuneLite Bridge integration.", position = 1, secret = true)
 	default String mystixAppKey() {
 		return "";
 	}
