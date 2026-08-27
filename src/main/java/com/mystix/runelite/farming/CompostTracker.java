@@ -45,6 +45,7 @@ import net.runelite.api.Client;
 import net.runelite.api.GameObject;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.Tile;
+import net.runelite.api.WorldView;
 import net.runelite.api.annotations.Varbit;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
@@ -125,7 +126,9 @@ public class CompostTracker
 		}
 
 		ObjectComposition patchDef = client.getObjectDefinition(e.getId());
-		WorldPoint actionLocation = WorldPoint.fromScene(client, e.getParam0(), e.getParam1(), client.getPlane());
+		WorldView worldView = client.getTopLevelWorldView();
+		WorldPoint actionLocation = WorldPoint.fromScene(
+			worldView, e.getParam0(), e.getParam1(), worldView.getPlane());
 		FarmingPatch targetPatch = farmingWorld.getRegionsForLocation(actionLocation)
 			.stream()
 			.flatMap(fr -> Arrays.stream(fr.getPatches()))
@@ -213,15 +216,16 @@ public class CompostTracker
 		// find gameobject instance in scene
 		// it is possible that the scene has reloaded between use and action occurring so we use worldpoint
 		// instead of storing scene coords in the menuoptionclicked event
-		LocalPoint localPatchLocation = LocalPoint.fromWorld(client, pendingCompost.getPatchLocation());
+		WorldView worldView = client.getTopLevelWorldView();
+		LocalPoint localPatchLocation = LocalPoint.fromWorld(worldView, pendingCompost.getPatchLocation());
 		if (localPatchLocation == null)
 		{
 			return false;
 		}
 
 		@Varbit int patchVarb = pendingCompost.getFarmingPatch().getVarbit();
-		Tile patchTile = client.getScene()
-			.getTiles()[client.getPlane()][localPatchLocation.getSceneX()][localPatchLocation.getSceneY()];
+		Tile patchTile = worldView.getScene()
+			.getTiles()[worldView.getPlane()][localPatchLocation.getSceneX()][localPatchLocation.getSceneY()];
 		GameObject patchObject = null;
 		for (GameObject go : patchTile.getGameObjects())
 		{

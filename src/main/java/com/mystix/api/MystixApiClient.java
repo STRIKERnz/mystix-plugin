@@ -22,6 +22,8 @@ import com.mystix.model.RoadmapList;
 import com.mystix.model.TimerSyncItem;
 import com.mystix.model.TimersSyncPayload;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -30,9 +32,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.imageio.ImageIO;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -41,6 +46,12 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import net.runelite.api.Skill;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
+import net.runelite.client.hiscore.HiscoreSkill;
+import net.runelite.api.gameval.SpriteID;
 
 @Slf4j
 @Singleton
@@ -49,6 +60,7 @@ public class MystixApiClient
 	private static final long REQUEST_TIMEOUT_SECONDS = 10;
 	private static final long LARGE_REQUEST_TIMEOUT_SECONDS = 60;
 	private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json");
+	private static final MediaType PNG_MEDIA_TYPE = MediaType.parse("image/png");
 	private static final String TIMERS_ENDPOINT = "/api/runelite/timers/";
 	private static final String SKILLS_ENDPOINT = "/api/runelite/skills/";
 	private static final String BANK_ENDPOINT = "/api/runelite/bank/";
@@ -65,6 +77,10 @@ public class MystixApiClient
 	private static final String SLAYER_CATALOG_ENDPOINT = "/api/runelite/slayer/catalog/";
 	private static final String SLAYER_CATALOG_STATUS_ENDPOINT = "/api/runelite/slayer/catalog/status/";
 	private static final String SLAYER_REWARDS_ENDPOINT = "/api/runelite/slayer/rewards/";
+	private static final String ITEM_ASSET_ENDPOINT = "/api/runelite/assets/items/";
+	private static final String SKILL_ASSET_ENDPOINT = "/api/runelite/assets/skills/";
+	private static final String HISCORE_ASSET_ENDPOINT = "/api/runelite/assets/hiscores/";
+	private static final String UI_ASSET_ENDPOINT = "/api/runelite/assets/ui/";
 
 	private static final int HTTP_OK_MIN = 200;
 	private static final int HTTP_OK_MAX = 300;
@@ -73,13 +89,21 @@ public class MystixApiClient
 	private final Gson gson;
 	private final OkHttpClient okHttpClient;
 	private final OkHttpClient largeRequestClient;
+	private final ItemManager itemManager;
+	private final SkillIconManager skillIconManager;
+	private final SpriteManager spriteManager;
+	private final ScheduledExecutorService executorService;
+	private final java.util.Set<String> queuedAssets = ConcurrentHashMap.newKeySet();
+	private final AtomicLong nextAssetSlotMillis = new AtomicLong();
 
 	// Last successfully-sent body per syncType; skips byte-identical idempotent
 	// re-syncs. Excludes loot-drops, which are append-style events.
 	private final Map<String, String> lastSentBodyByType = new ConcurrentHashMap<>();
 
 	@Inject
-	public MystixApiClient(MystixConfig config, Gson gson, OkHttpClient okHttpClient)
+	public MystixApiClient(MystixConfig config, Gson gson, OkHttpClient okHttpClient,
+		ItemManager itemManager, SkillIconManager skillIconManager, SpriteManager spriteManager,
+		ScheduledExecutorService executorService)
 	{
 		this.config = config;
 		this.gson = gson;
@@ -90,6 +114,16 @@ public class MystixApiClient
 			.callTimeout(LARGE_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 			.readTimeout(LARGE_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 			.build();
+		this.itemManager = itemManager;
+		this.skillIconManager = skillIconManager;
+		this.spriteManager = spriteManager;
+		this.executorService = executorService;
+	}
+
+	/** Constructor retained for isolated API-client tests. */
+	public MystixApiClient(MystixConfig config, Gson gson, OkHttpClient okHttpClient)
+	{
+		this(config, gson, okHttpClient, null, null, null, null);
 	}
 
 	public void sendTimersSync(List<TimerSyncItem> timers)
@@ -101,6 +135,8 @@ public class MystixApiClient
 
 	public void sendPlayerSkillsSync(PlayerSkillsSyncPayload payload)
 	{
+		queueSkillIcons();
+		queueUiIcons();
 		// Never dedupe skills: the backend skills endpoint also triggers roadmap
 		// rechecks and WikiSync, so it must run even when the payload is unchanged.
 		postAsync(SKILLS_ENDPOINT, payload.toJson(gson), "skills", false, false,
@@ -109,12 +145,18 @@ public class MystixApiClient
 
 	public void sendLoadoutSync(LoadoutSyncPayload payload)
 	{
+		payload.getLoadoutSets().forEach(set -> {
+			set.getEquipmentItems().forEach(item -> queueItemIcon(item.getItemId()));
+			set.getInventoryItems().forEach(item -> queueItemIcon(item.getItemId()));
+		});
 		postAsync(LOADOUT_ENDPOINT, payload.toJson(gson), "loadout", false, true,
 			() -> log.debug("Mystix loadout sync successful for player: {}", payload.getPlayerUsername()));
 	}
 
 	public void sendBankSync(BankSyncPayload payload)
 	{
+		payload.getItems().values().forEach(items ->
+			items.forEach(item -> queueItemIcon(item.getItemId())));
 		postAsync(BANK_ENDPOINT, payload.toJson(gson), "bank", false, true,
 			() -> log.debug("Mystix bank sync successful: {} items for player: {}",
 				payload.getTotalItemCount(), payload.getPlayerUsername()));
@@ -122,6 +164,7 @@ public class MystixApiClient
 
 	public void sendCollectionLogSync(CollectionLogSyncPayload payload)
 	{
+		payload.getCollectionLog().forEach(this::queueItemIcon);
 		postAsync(COLLECTION_LOG_ENDPOINT, payload.toJson(gson), "collection-log", false, true,
 			() -> log.debug("Mystix collection log sync successful: {} items for player: {}",
 				payload.getItemCount(), payload.getPlayerUsername()));
@@ -150,6 +193,7 @@ public class MystixApiClient
 
 	public void sendKillCountsSync(KillCountsSyncPayload payload)
 	{
+		queueKillCountIcons(payload.getKillCounts().keySet());
 		postAsync(KILL_COUNTS_ENDPOINT, payload.toJson(gson), "kill-counts", false, true,
 			() -> log.debug("Mystix kill counts sync successful: {} bosses for player: {}",
 				payload.getKillCounts().size(), payload.getPlayerUsername()));
@@ -199,6 +243,8 @@ public class MystixApiClient
 
 	public void sendLootSync(LootSyncPayload payload)
 	{
+		payload.getLootRecords().forEach(record ->
+			record.getItems().forEach(item -> queueItemIcon(item.getItemId())));
 		postAsync(LOOT_ENDPOINT, payload.toJson(gson), "loot", true, true,
 			() -> log.debug("Mystix loot sync successful: {} records for player: {}",
 				payload.getLootRecords().size(), payload.getPlayerUsername()));
@@ -235,6 +281,171 @@ public class MystixApiClient
 		postAsync(LOOT_DROP_ENDPOINT, json, "loot-drops", true, false,
 			() -> log.debug("Mystix loot drops batch recorded: {} drops for player: {}",
 				drops.size(), playerUsername));
+	}
+
+	/** Upload a small item sprite read from RuneLite's local cache. */
+	private void sendAsset(String endpoint, String assetId, byte[] png)
+	{
+		if (!SyncGuard.hasAppKey(config) || png == null || png.length == 0 || png.length > 256 * 1024)
+		{
+			return;
+		}
+		Request request = new Request.Builder()
+			.url(apiBaseUrl() + endpoint + assetId + "/")
+			.header("X-RuneLite-Key", config.mystixAppKey().trim())
+			.post(RequestBody.create(PNG_MEDIA_TYPE, png))
+			.build();
+		okHttpClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.debug("Failed to upload asset {}: {}", assetId, e.getMessage());
+			}
+
+			@Override
+			public void onResponse(Call call, Response response)
+			{
+				try
+				{
+					if (response.code() < HTTP_OK_MIN || response.code() >= HTTP_OK_MAX)
+					{
+						log.debug("Asset {} upload returned {}", assetId, response.code());
+					}
+				}
+				finally
+				{
+					response.close();
+				}
+			}
+		});
+	}
+
+	public void queueItemIcon(int itemId)
+	{
+		if (itemManager == null || executorService == null || itemId <= 0 || !queuedAssets.add("item:" + itemId))
+		{
+			return;
+		}
+		queueImage(ITEM_ASSET_ENDPOINT, Integer.toString(itemId), itemManager.getImage(itemId));
+	}
+
+	private void queueSkillIcons()
+	{
+		if (skillIconManager == null || executorService == null)
+		{
+			return;
+		}
+		for (Skill skill : Skill.values())
+		{
+			String name = skill.getName().toLowerCase().replace(' ', '_');
+			if (queuedAssets.add("skill:" + name))
+			{
+				queueImage(SKILL_ASSET_ENDPOINT, name, skillIconManager.getSkillImage(skill));
+			}
+		}
+	}
+
+	private void queueKillCountIcons(java.util.Set<String> names)
+	{
+		if (spriteManager == null || executorService == null)
+		{
+			return;
+		}
+		Map<String, HiscoreSkill> hiscores = new LinkedHashMap<>();
+		for (HiscoreSkill skill : HiscoreSkill.values())
+		{
+			String slug = assetSlug(skill.getName());
+			hiscores.put(slug, skill);
+			if (slug.startsWith("the_"))
+			{
+				hiscores.put(slug.substring(4), skill);
+			}
+		}
+		hiscores.put("guardians_of_the_rift", HiscoreSkill.RIFTS_CLOSED);
+		hiscores.put("lunar_chest", HiscoreSkill.LUNAR_CHESTS);
+		hiscores.put("theatre_of_blood_entry_mode", HiscoreSkill.THEATRE_OF_BLOOD);
+		hiscores.put("tombs_of_amascut_entry_mode", HiscoreSkill.TOMBS_OF_AMASCUT);
+		for (String name : names)
+		{
+			String slug = assetSlug(name);
+			if (!queuedAssets.add("hiscore:" + slug))
+			{
+				continue;
+			}
+			HiscoreSkill skill = hiscores.get(slug);
+			int spriteId;
+			if (skill != null)
+			{
+				spriteId = skill.getSpriteId();
+			}
+			else if (slug.contains("agility") || slug.endsWith("_rooftop"))
+			{
+				spriteId = HiscoreSkill.AGILITY.getSpriteId();
+			}
+			else if (slug.equals("herbiboar") || slug.equals("hunter_rumours"))
+			{
+				spriteId = HiscoreSkill.HUNTER.getSpriteId();
+			}
+			else if (slug.equals("brimstone_chest"))
+			{
+				spriteId = SpriteID.CHEST;
+			}
+			else
+			{
+				spriteId = SpriteID.HEADICONS_PK;
+			}
+			spriteManager.getSpriteAsync(spriteId, 0,
+				image -> queueImage(HISCORE_ASSET_ENDPOINT, slug, image));
+		}
+	}
+
+	private void queueUiIcons()
+	{
+		if (spriteManager == null || executorService == null)
+		{
+			return;
+		}
+		Map<String, Integer> icons = new LinkedHashMap<>();
+		icons.put("quests", SpriteID.AchievementDiaryIcons.BLUE_QUESTS);
+		icons.put("achievement_diaries", SpriteID.AchievementDiaryIcons.GREEN_ACHIEVEMENT_DIARIES);
+		icons.put("activities", SpriteID.AchievementDiaryIcons.RED_MINIGAMES);
+		icons.put("bank", SpriteID.Mapfunction._5);
+		icons.put("slayer", SpriteID.Mapfunction._51);
+		icons.put("kill_counts", SpriteID.HEADICONS_PK);
+		for (Map.Entry<String, Integer> icon : icons.entrySet())
+		{
+			if (queuedAssets.add("ui:" + icon.getKey()))
+			{
+				spriteManager.getSpriteAsync(icon.getValue(), 0,
+					image -> queueImage(UI_ASSET_ENDPOINT, icon.getKey(), image));
+			}
+		}
+	}
+
+	private static String assetSlug(String value)
+	{
+		return value.toLowerCase().replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
+	}
+
+	private void queueImage(String endpoint, String assetId, BufferedImage image)
+	{
+		long now = System.currentTimeMillis();
+		long slot = nextAssetSlotMillis.updateAndGet(previous -> Math.max(previous, now) + 100L);
+		executorService.schedule(() ->
+		{
+			try (ByteArrayOutputStream output = new ByteArrayOutputStream())
+			{
+				if (image != null && ImageIO.write(image, "png", output))
+				{
+					sendAsset(endpoint, assetId, output.toByteArray());
+				}
+			}
+			catch (IOException e)
+			{
+				log.debug("Could not encode asset {}", assetId, e);
+			}
+		}, Math.max(0L, slot - now), TimeUnit.MILLISECONDS);
 	}
 
 	/**

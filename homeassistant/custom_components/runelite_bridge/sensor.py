@@ -20,6 +20,17 @@ SKILLS = (
     "runecraft", "hunter", "construction", "sailing",
 )
 
+ENDPOINT_PICTURES = {
+    "quests": "/local/runelite/ui/quests.png",
+    "achievement-diaries": "/local/runelite/ui/achievement_diaries.png",
+    "combat-achievements": "/local/runelite/ui/activities.png",
+    "bank": "/local/runelite/ui/bank.png",
+    "slayer": "/local/runelite/ui/slayer.png",
+    "slayer/catalog": "/local/runelite/ui/slayer.png",
+    "slayer/rewards": "/local/runelite/ui/slayer.png",
+    "kill-counts": "/local/runelite/ui/kill_counts.png",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -93,6 +104,10 @@ class RuneLitePayloadSensor(SensorEntity):
         return {"sync_type": self._endpoint, **_payload_attributes(payload)}
 
     @property
+    def entity_picture(self) -> str | None:
+        return ENDPOINT_PICTURES.get(self._endpoint)
+
+    @property
     def _payload(self) -> dict[str, Any] | None:
         payload = self._runtime["payloads"].get(self._endpoint)
         return payload if isinstance(payload, dict) else None
@@ -113,6 +128,7 @@ class RuneLiteDetailSensor(SensorEntity):
         value: Callable[[dict[str, Any]], Any],
         attributes: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         icon: str = "mdi:sword-cross",
+        entity_picture: str | Callable[[dict[str, Any]], str | None] | None = None,
     ) -> None:
         self._runtime = runtime
         self._endpoint = endpoint
@@ -121,6 +137,7 @@ class RuneLiteDetailSensor(SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_detail_{key}"
         self._attr_name = name
         self._attr_icon = icon
+        self._entity_picture = entity_picture
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="RuneLite Bridge",
@@ -150,6 +167,13 @@ class RuneLiteDetailSensor(SensorEntity):
             return None
         return self._attributes(payload)
 
+    @property
+    def entity_picture(self) -> str | None:
+        if isinstance(self._entity_picture, str) or self._entity_picture is None:
+            return self._entity_picture
+        payload = self._runtime["payloads"].get(self._endpoint)
+        return self._entity_picture(payload) if isinstance(payload, dict) else None
+
 
 def _fixed_detail_entities(
     entry: ConfigEntry, runtime: dict[str, Any]
@@ -161,13 +185,14 @@ def _fixed_detail_entities(
             lambda payload, skill=skill: _skill(payload, skill).get("level"),
             lambda payload, skill=skill: {"xp": _skill(payload, skill).get("current_xp")},
             "mdi:star-four-points",
+            f"/local/runelite/skills/{skill}.png",
         ))
 
     for status, label in ((2, "Completed"), (1, "In progress"), (0, "Not started")):
         entities.append(RuneLiteDetailSensor(
             entry, runtime, "quests", f"quests_{status}", f"Quests {label.lower()}",
             lambda payload, status=status: _count_value(payload.get("quests"), status),
-            icon="mdi:book-open-page-variant",
+            icon="mdi:book-open-page-variant", entity_picture="/local/runelite/ui/quests.png",
         ))
 
     slayer_fields = (
@@ -183,6 +208,7 @@ def _fixed_detail_entities(
         entities.append(RuneLiteDetailSensor(
             entry, runtime, "slayer", f"slayer_{field}", label,
             lambda payload, field=field: _nested(payload, "state", field), icon=icon,
+            entity_picture="/local/runelite/ui/slayer.png",
         ))
 
     entities.extend((
@@ -195,11 +221,13 @@ def _fixed_detail_entities(
         ),
         RuneLiteDetailSensor(
             entry, runtime, "loot/drop", "latest_drop_item_count", "Latest drop items",
-            lambda payload: _length(payload.get("items")),
+            lambda payload: _length(_latest_drop(payload).get("items")),
             lambda payload: {
-                "npc": payload.get("npc_name"), "kill_count": payload.get("kill_count"),
-                "dropped_at": payload.get("dropped_at"), "items": payload.get("items", []),
-            }, "mdi:treasure-chest",
+                "npc": _latest_drop(payload).get("npc_name"),
+                "kill_count": _latest_drop(payload).get("kill_count"),
+                "dropped_at": _latest_drop(payload).get("dropped_at"),
+                "items": _latest_drop(payload).get("items", []),
+            }, "mdi:treasure-chest", lambda payload: _first_item_picture(_latest_drop(payload)),
         ),
     ))
     return entities
@@ -226,6 +254,7 @@ def _dynamic_detail_entities(
                         entry, runtime, endpoint, key, f"KC {str(boss).title()}",
                         lambda data, boss=boss: data.get("kill_counts", {}).get(boss),
                         icon="mdi:skull-crossbones",
+                        entity_picture=f"/local/runelite/hiscores/{_slug(boss)}.png",
                     ))
     elif endpoint == "bank":
         values = payload.get("items", {})
@@ -242,7 +271,12 @@ def _dynamic_detail_entities(
                                 item.get("quantity", 0)
                                 for item in data.get("items", {}).get(source, [])
                                 if isinstance(item, dict) and isinstance(item.get("quantity"), int)
-                            )
+                            ),
+                            "items": [
+                                {**item, "icon": f"/local/runelite/items/{item.get('item_id')}.png"}
+                                for item in data.get("items", {}).get(source, [])[:28]
+                                if isinstance(item, dict) and isinstance(item.get("item_id"), int)
+                            ],
                         }, "mdi:bank",
                     ))
     return entities
@@ -259,6 +293,19 @@ def _skill(payload: dict[str, Any], skill: str) -> dict[str, Any]:
 def _nested(payload: dict[str, Any], parent: str, key: str) -> Any:
     value = payload.get(parent, {})
     return value.get(key) if isinstance(value, dict) else None
+
+
+def _latest_drop(payload: dict[str, Any]) -> dict[str, Any]:
+    drops = payload.get("drops", [])
+    return drops[-1] if isinstance(drops, list) and drops and isinstance(drops[-1], dict) else {}
+
+
+def _first_item_picture(payload: dict[str, Any]) -> str | None:
+    items = payload.get("items", [])
+    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+        return None
+    item_id = items[0].get("item_id")
+    return f"/local/runelite/items/{item_id}.png" if isinstance(item_id, int) else None
 
 
 def _slug(value: Any) -> str:
@@ -294,7 +341,7 @@ def _payload_state(endpoint: str, payload: dict[str, Any]) -> str | int:
     if endpoint == "loot":
         return _length(payload.get("loot_records"))
     if endpoint == "loot/drop":
-        return str(payload.get("npc_name") or "Drop received")
+        return str(_latest_drop(payload).get("npc_name") or "Drop received")
     if endpoint == "slayer":
         state = payload.get("state", {})
         return str(state.get("task_name") or "No task") if isinstance(state, dict) else "Received"

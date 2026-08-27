@@ -164,7 +164,11 @@ views:
         title: Boss and activity kill counts
         content: |-
           {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_kc_') %}
-          **{{ entity.name | replace('RuneLite Bridge KC ', '') }}:** {{ entity.state }}  
+          <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+            <img src="{{ entity.attributes.entity_picture }}" width="32" height="32">
+            <strong>{{ entity.name | replace('RuneLite Bridge KC ', '') }}</strong>
+            <span style="margin-left:auto">{{ entity.state }}</span>
+          </div>
           {% else %}
           No kill counts received yet.
           {% endfor %}
@@ -183,7 +187,11 @@ views:
         title: Bank sources
         content: |-
           {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_bank_') %}
-          **{{ entity.name | replace('RuneLite Bridge ', '') }}:** {{ entity.state }}  
+          ### {{ entity.name | replace('RuneLite Bridge ', '') }} ({{ entity.state }})
+          {% for item in entity.attributes.get('items', []) %}
+          <img src="{{ item.icon }}" width="32" height="32" title="Item {{ item.item_id }} × {{ item.quantity }}">
+          {% endfor %}
+
           {% else %}
           Open your bank, seed vault, looting bag, or potion storage to sync it.
           {% endfor %}

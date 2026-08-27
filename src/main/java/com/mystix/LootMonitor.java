@@ -237,6 +237,7 @@ public class LootMonitor
 		{
 			int itemId = canonicalizeItemId(itemStack.getId());
 			items.add(new LootSyncPayload.LootItem(itemId, itemStack.getQuantity()));
+			apiClient.queueItemIcon(itemId);
 		}
 
 		if (items.isEmpty())
@@ -253,6 +254,7 @@ public class LootMonitor
 			pendingDrops.add(payload);
 		}
 	}
+
 
 	/**
 	 * Flushes all queued loot drops to the API in a single batch request.
