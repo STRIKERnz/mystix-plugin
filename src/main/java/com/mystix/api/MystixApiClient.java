@@ -81,6 +81,7 @@ public class MystixApiClient
 	private static final String SKILL_ASSET_ENDPOINT = "/api/runelite/assets/skills/";
 	private static final String HISCORE_ASSET_ENDPOINT = "/api/runelite/assets/hiscores/";
 	private static final String UI_ASSET_ENDPOINT = "/api/runelite/assets/ui/";
+	private static final String ITEM_METADATA_ENDPOINT = "/api/runelite/assets/item-metadata/";
 
 	private static final int HTTP_OK_MIN = 200;
 	private static final int HTTP_OK_MAX = 300;
@@ -94,6 +95,7 @@ public class MystixApiClient
 	private final SpriteManager spriteManager;
 	private final ScheduledExecutorService executorService;
 	private final java.util.Set<String> queuedAssets = ConcurrentHashMap.newKeySet();
+	private final java.util.Set<Integer> queuedItemMetadata = ConcurrentHashMap.newKeySet();
 	private final AtomicLong nextAssetSlotMillis = new AtomicLong();
 
 	// Last successfully-sent body per syncType; skips byte-identical idempotent
@@ -157,9 +159,38 @@ public class MystixApiClient
 	{
 		payload.getItems().values().forEach(items ->
 			items.forEach(item -> queueItemIcon(item.getItemId())));
+		queueItemMetadata(payload);
 		postAsync(BANK_ENDPOINT, payload.toJson(gson), "bank", false, true,
 			() -> log.debug("Mystix bank sync successful: {} items for player: {}",
 				payload.getTotalItemCount(), payload.getPlayerUsername()));
+	}
+
+	private void queueItemMetadata(BankSyncPayload payload)
+	{
+		if (itemManager == null)
+		{
+			return;
+		}
+		Map<String, String> names = new LinkedHashMap<>();
+		payload.getItems().values().forEach(items -> items.forEach(item ->
+		{
+			int itemId = item.getItemId();
+			if (queuedItemMetadata.add(itemId))
+			{
+				String name = itemManager.getItemComposition(itemId).getName();
+				if (name != null && !name.isBlank())
+				{
+					names.put(Integer.toString(itemId), name);
+				}
+			}
+		}));
+		if (!names.isEmpty())
+		{
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("items", names);
+			postAsync(ITEM_METADATA_ENDPOINT, gson.toJson(body), "item-metadata", false, false,
+				() -> log.debug("Mystix item metadata sync successful: {} names", names.size()));
+		}
 	}
 
 	public void sendCollectionLogSync(CollectionLogSyncPayload payload)

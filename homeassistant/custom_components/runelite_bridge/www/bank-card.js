@@ -48,7 +48,8 @@ class RuneLiteBankCard extends HTMLElement {
       return;
     }
     const all = this.data.sources[this.source] || [];
-    const filtered = all.filter(item => !this.search || String(item.item_id).includes(this.search));
+    const needle = this.search.toLowerCase();
+    const filtered = all.filter(item => !needle || String(item.item_id).includes(needle) || item.name.toLowerCase().includes(needle));
     const pages = Math.max(1, Math.ceil(filtered.length / this.pageSize));
     this.page = Math.min(this.page, pages - 1);
     const items = filtered.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
@@ -56,9 +57,10 @@ class RuneLiteBankCard extends HTMLElement {
       `<button class="tab ${source === this.source ? "active" : ""}" data-source="${source}">${source.replaceAll("_", " ")} (${values.length})</button>`
     ).join("");
     const cells = items.map(item => `
-      <div class="item" title="Item ID ${item.item_id}">
+      <div class="item" title="${escapeHtml(item.name)} · Item ID ${item.item_id}">
         <img src="${item.icon}" loading="lazy">
         <span class="quantity">${Number(item.quantity).toLocaleString()}</span>
+        <span class="name">${escapeHtml(item.name)}</span>
         <span class="id">#${item.item_id}</span>
       </div>`).join("");
     this.shadowRoot.innerHTML = `
@@ -71,17 +73,18 @@ class RuneLiteBankCard extends HTMLElement {
         button.active { background:var(--primary-color); color:var(--text-primary-color); }
         input { flex:1; min-width:160px; }
         .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:8px; }
-        .item { position:relative; min-height:72px; padding:6px; border-radius:8px; background:var(--secondary-background-color); text-align:center; }
+        .item { position:relative; min-height:92px; padding:6px; border-radius:8px; background:var(--secondary-background-color); text-align:center; }
         .item img { width:40px; height:40px; object-fit:contain; image-rendering:auto; }
         .quantity { position:absolute; right:4px; top:3px; color:#fff; font-size:11px; font-weight:700; text-shadow:1px 1px 2px #000,-1px -1px 2px #000; }
-        .id { display:block; color:var(--secondary-text-color); font-size:10px; }
+        .name { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:11px; }
+        .id { display:block; color:var(--secondary-text-color); font-size:9px; }
         .pager { justify-content:space-between; margin:14px 0 0; }
         .loading { padding:20px; }
       </style>
       <ha-card>
         <h2>${this.config?.title || "RuneLite Bank"}${this.data.player ? ` — ${this.data.player}` : ""}</h2>
         <div class="tabs">${tabs}</div>
-        <div class="toolbar"><input type="search" placeholder="Search item ID" value="${this.search}"></div>
+        <div class="toolbar"><input type="search" placeholder="Search item name or ID" value="${escapeHtml(this.search)}"></div>
         <div class="grid">${cells || "No matching items"}</div>
         <div class="pager"><button data-page="prev">Previous</button><span>Page ${this.page + 1} of ${pages} · ${filtered.length} items</span><button data-page="next">Next</button></div>
       </ha-card>`;
@@ -95,6 +98,12 @@ class RuneLiteBankCard extends HTMLElement {
     this.shadowRoot.querySelector('[data-page="prev"]').onclick = () => { if (this.page > 0) { this.page--; this.render(); } };
     this.shadowRoot.querySelector('[data-page="next"]').onclick = () => { if (this.page + 1 < pages) { this.page++; this.render(); } };
   }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, character => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  })[character]);
 }
 
 if (!customElements.get("runelite-bank-card")) {

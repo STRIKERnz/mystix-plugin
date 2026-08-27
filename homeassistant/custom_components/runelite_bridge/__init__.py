@@ -45,6 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.http.register_view(RuneLiteAssetView("hiscores", "{asset_id:[a-z0-9_]+}"))
     hass.http.register_view(RuneLiteAssetView("ui", "{asset_id:[a-z_]+}"))
     hass.http.register_view(RuneLiteBankDashboardView())
+    hass.http.register_view(RuneLiteItemMetadataView())
     await hass.http.async_register_static_paths(
         [StaticPathConfig(
             "/runelite_bridge_static/bank-card.js",
@@ -157,6 +158,7 @@ class RuneLiteBankDashboardView(HomeAssistantView):
         payload = runtime.get("payloads", {}).get("bank", {})
         sources: dict[str, list[dict[str, Any]]] = {}
         raw_sources = payload.get("items", {}) if isinstance(payload, dict) else {}
+        item_names = runtime.get("payloads", {}).get("_item_names", {})
         if isinstance(raw_sources, dict):
             for source, items in raw_sources.items():
                 if not isinstance(items, list):
@@ -164,6 +166,7 @@ class RuneLiteBankDashboardView(HomeAssistantView):
                 sources[str(source)] = [
                     {
                         "item_id": item["item_id"],
+                        "name": item_names.get(str(item["item_id"]), f"Item {item['item_id']}"),
                         "quantity": item.get("quantity", 0),
                         "icon": f"/local/runelite/items/{item['item_id']}.png",
                     }
@@ -174,3 +177,36 @@ class RuneLiteBankDashboardView(HomeAssistantView):
             "player": payload.get("player_username") if isinstance(payload, dict) else None,
             "sources": sources,
         })
+
+
+class RuneLiteItemMetadataView(HomeAssistantView):
+    """Receive item names in one bounded, authenticated batch."""
+
+    requires_auth = False
+    url = "/api/runelite/assets/item-metadata/"
+    name = "api:runelite_bridge:item_metadata"
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        runtime = hass.data.get(DOMAIN)
+        if runtime is None:
+            return web.json_response({"error": "not_configured"}, status=503)
+        supplied_key = request.headers.get("X-RuneLite-Key", "")
+        if not supplied_key or not secrets.compare_digest(supplied_key, runtime["app_key"]):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            return web.json_response({"error": "invalid_json"}, status=400)
+        items = body.get("items", {}) if isinstance(body, dict) else {}
+        if not isinstance(items, dict) or len(items) > 5000:
+            return web.json_response({"error": "invalid_items"}, status=400)
+        valid = {
+            str(item_id): name[:100]
+            for item_id, name in items.items()
+            if str(item_id).isdigit() and isinstance(name, str) and name.strip()
+        }
+        names = runtime["payloads"].setdefault("_item_names", {})
+        names.update(valid)
+        await runtime["store"].async_save(runtime["payloads"])
+        return web.json_response({"success": True, "stored": len(valid)})
