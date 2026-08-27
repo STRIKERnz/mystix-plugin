@@ -8,6 +8,7 @@ from typing import Any
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.const import Platform
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -20,6 +21,8 @@ from .const import (
     SYNC_ENDPOINTS,
 )
 
+PLATFORMS = (Platform.SENSOR,)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the bridge and its Mystix-compatible HTTP endpoints."""
@@ -30,17 +33,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "app_key": entry.data[CONF_APP_KEY],
         "payloads": payloads,
         "store": store,
+        "listeners": [],
     }
     hass.data[DOMAIN] = runtime
 
     for endpoint in SYNC_ENDPOINTS:
         hass.http.register_view(RuneLiteSyncView(endpoint))
 
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload bridge state."""
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     hass.data.pop(DOMAIN, None)
     return True
 
@@ -76,6 +83,8 @@ class RuneLiteSyncView(HomeAssistantView):
 
         runtime["payloads"][self.endpoint] = payload
         await runtime["store"].async_save(runtime["payloads"])
+        for listener in runtime["listeners"]:
+            listener(self.endpoint)
         hass.bus.async_fire(
             f"{DOMAIN}_sync",
             {"sync_type": self.endpoint, "payload": payload},
