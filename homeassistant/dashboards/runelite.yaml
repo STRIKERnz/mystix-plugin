@@ -163,9 +163,9 @@ views:
       - type: markdown
         title: Boss and activity kill counts
         content: |-
-          {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_kc_') %}
+          {% for entity in states.sensor if entity.entity_id.startswith('sensor.runelite_bridge_kc_') and entity.state not in ('unavailable', 'unknown') %}
           <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-            <img src="{{ entity.attributes.entity_picture }}" width="32" height="32">
+            <img src="{{ entity.attributes.entity_picture }}?v=2" width="32" height="32">
             <strong>{{ entity.name | replace('RuneLite Bridge KC ', '') }}</strong>
             <span style="margin-left:auto">{{ entity.state }}</span>
           </div>

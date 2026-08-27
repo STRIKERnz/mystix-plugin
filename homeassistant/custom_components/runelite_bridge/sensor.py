@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import re
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -247,7 +248,9 @@ def _dynamic_detail_entities(
         values = payload.get("kill_counts", {})
         if isinstance(values, dict):
             for boss in values:
-                key = f"kc_{_slug(boss)}"
+                # Keep the original unique-ID slug for registry compatibility;
+                # asset filenames use the normalized/collapsed slug below.
+                key = f"kc_{_legacy_slug(boss)}"
                 if key not in known:
                     known.add(key)
                     entities.append(RuneLiteDetailSensor(
@@ -309,7 +312,14 @@ def _first_item_picture(payload: dict[str, Any]) -> str | None:
 
 
 def _slug(value: Any) -> str:
-    return "".join(character if character.isalnum() else "_" for character in str(value).lower()).strip("_")
+    return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
+
+
+def _legacy_slug(value: Any) -> str:
+    return "".join(
+        character if character.isalnum() else "_"
+        for character in str(value).lower()
+    ).strip("_")
 
 
 def _payload_state(endpoint: str, payload: dict[str, Any]) -> str | int:
